@@ -22,11 +22,18 @@ variable "efs_throughput_mode" {
   type    = string
   default = ""
 }
+# "reserved" lets Karpenter launch GPU nodes into an On-Demand Capacity
+# Reservation attached to NodeClass/gpu (see eks-addons.tf). Karpenter prices
+# reserved offerings at zero, so it prefers them whenever a matching reservation
+# has room; with no reservation attached, selection is unchanged from before.
+# Set to ["reserved", "on-demand"] for events that must not be interrupted.
 variable "gpu_nodepool_capacity_type" {
   type    = list(string)
-  default = ["spot", "on-demand"]
+  default = ["reserved", "spot", "on-demand"]
 }
 
+# Kept deliberately broad so a workload can choose its GPU by pod nodeSelector
+# (node.kubernetes.io/instance-type) without needing a starter-kit change.
 variable "gpu_nodepool_instance_family" {
   type    = list(string)
   default = ["g6e", "g6", "g5g", "p5en", "p5e", "p5", "p4de", "p4d"]
