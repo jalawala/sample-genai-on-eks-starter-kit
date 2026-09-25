@@ -24,10 +24,21 @@ RUN python3 -m pip install --no-cache-dir virtualenv && \
 # still resolves to the image's /usr/local/bin/vllm (image Python) — keeping vLLM's deps isolated.
 ENV PATH=/opt/rayvenv/bin:$PATH
 
-# Serve app on PYTHONPATH (the RayService sets PYTHONPATH=/home/ray and import_path vllm_serve:app).
-COPY vllm_serve.py /home/ray/vllm_serve.py
+# Serve apps on PYTHONPATH (the RayService/Anyscale Service sets PYTHONPATH=/home/ray and
+# selects one via import_path):
+#   vllm_serve:app  — single GPU deployment, whole L4          (autoscaling module)
+#   compose_app:app — gateway + guard (CPU) -> deepseek (GPU)  (composition module)
+#   pack_app:app    — two small models sharing one L4          (fractional-GPU module)
+#
+# They are baked into the image rather than shipped via Anyscale's `working_dir` because
+# `working_dir` activates Anyscale's session/file-sync machinery, which requires the
+# `anyscale` package inside the image; this image is built FROM vllm/vllm-openai and
+# deliberately does not carry it (the ray container would exit 127).
+COPY vllm_serve.py  /home/ray/vllm_serve.py
+COPY compose_app.py /home/ray/compose_app.py
+COPY pack_app.py    /home/ray/pack_app.py
 
 # Fail the build early if either side is broken: Ray must import under the venv, vLLM under image Python.
-RUN PYTHONPATH=/home/ray /opt/rayvenv/bin/python -c "import ray; from ray import serve; import vllm_serve; print('rayvenv OK')" && \
+RUN PYTHONPATH=/home/ray /opt/rayvenv/bin/python -c "import ray; from ray import serve; import vllm_serve, compose_app, pack_app; print('rayvenv OK')" && \
     /usr/bin/python3 -c "import vllm, starlette; print('image vllm', vllm.__version__, 'starlette', starlette.__version__)" || \
     python3 -c "import vllm; print('image vllm', vllm.__version__)"

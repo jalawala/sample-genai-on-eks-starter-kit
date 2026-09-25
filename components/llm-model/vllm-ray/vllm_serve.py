@@ -27,16 +27,18 @@ READY_TIMEOUT = int(os.environ.get("VLLM_READY_TIMEOUT", "1800"))
 
 web = FastAPI()
 
-@serve.deployment(
-    name="deepseek",
-    autoscaling_config={"min_replicas": 1, "max_replicas": 2, "target_ongoing_requests": 2},
-    max_ongoing_requests=8,
-    ray_actor_options={"num_gpus": NUM_GPUS},
-    health_check_period_s=30,
-    health_check_timeout_s=60,
-)
-@serve.ingress(web)
-class VLLMGpuProxy:
+class VLLMEngineBase:
+    """The engine, WITHOUT any Ray Serve decoration.
+
+    Kept separate from the ingress deployment below so other applications can reuse
+    the engine as a NON-ingress deployment. Ray Serve permits only ONE
+    `@serve.ingress` (FastAPI) deployment per application — binding the decorated
+    `VLLMGpuProxy` inside another FastAPI app fails with:
+        "Found multiple FastAPI deployments in application ... Please only include
+         one deployment with @serve.ingress"
+    See compose_app.py, which subclasses this for the composed graph.
+    """
+
     def __init__(self):
         self.base = f"http://127.0.0.1:{VLLM_PORT}"
         cmd = [
@@ -72,6 +74,31 @@ class VLLMGpuProxy:
     async def check_health(self):
         if self.proc.poll() is not None:
             raise RuntimeError(f"vllm subprocess died rc={self.proc.returncode}")
+
+    async def chat_passthrough(self, body: dict) -> dict:
+        """Plain (non-route) entrypoint for DeploymentHandle callers.
+
+        The @web.* methods above are HTTP routes — Serve invokes them for inbound
+        requests. A *composed* graph (see compose_app.py) instead calls this replica
+        in-process from another deployment via `handle.chat_passthrough.remote(body)`,
+        which needs an ordinary method. Non-streaming by design: composition hops are
+        request/response, and the caller owns any streaming back to the client.
+        """
+        r = await self.client.post("/v1/chat/completions", json=body)
+        return json.loads(r.content)
+
+
+@serve.deployment(
+    name="deepseek",
+    autoscaling_config={"min_replicas": 1, "max_replicas": 2, "target_ongoing_requests": 2},
+    max_ongoing_requests=8,
+    ray_actor_options={"num_gpus": NUM_GPUS},
+    health_check_period_s=30,
+    health_check_timeout_s=60,
+)
+@serve.ingress(web)
+class VLLMGpuProxy(VLLMEngineBase):
+    """The standalone serving deployment: engine + OpenAI-compatible HTTP ingress."""
 
     @web.get("/v1/models")
     async def models(self):
