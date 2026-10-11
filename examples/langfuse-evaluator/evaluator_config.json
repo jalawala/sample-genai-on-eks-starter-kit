@@ -1,0 +1,16 @@
+{
+  "$schema": "https://langfuse.com/docs/scores/schema",
+  "evaluator_name": "helpfulness-judge",
+  "judge_model": "bedrock/claude-4.5-haiku",
+  "judge_gateway": "https://litellm.dev.cloud-tech-consulting.com/v1/chat/completions",
+  "rubric_prompt": "You are an evaluator. Score this answer on helpfulness from 1 to 5.\nReturn ONLY valid JSON: {\"score\": <int 1-5>, \"reasoning\": \"<1 sentence>\"}.\n\nUSER QUESTION:\n{{input}}\n\nAI ANSWER:\n{{output}}\n\nScore now.",
+  "score_name": "llm-judge-helpfulness",
+  "score_data_type": "NUMERIC",
+  "score_range": [1, 5],
+  "filter": {
+    "tags_any": ["production"],
+    "since_minutes": 60
+  },
+  "sample_rate": 0.10,
+  "notes": "OSS-friendly pattern: programmatic scoring via /api/public/scores. No Langfuse Pro license needed."
+}
